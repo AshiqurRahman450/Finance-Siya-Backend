@@ -29,6 +29,14 @@ if (!fs.existsSync(uploadsDir)) {
 
 app.use('/uploads', express.static(uploadsDir));
 
+app.get("/", (req, res) => {
+  res.json({
+    message: "Hello! Backend is running 🚀",
+    status: "active",
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Multer Storage Configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {

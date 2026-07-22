@@ -17,6 +17,11 @@ const MONGODB_URI = 'mongodb+srv://asksarkar0786_db_user:moXY8JHGKNFo9hoo@cluste
 app.use(cors());
 app.use(express.json());
 
+app.use((req, res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.url} - body:`, req.body);
+  next();
+});
+
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
@@ -153,6 +158,28 @@ const SavingsGoalSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 const SavingsGoal = mongoose.model('SavingsGoal', SavingsGoalSchema);
+
+// Income Source Schema
+const IncomeSourceSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type: { type: String, required: true },
+  amount: { type: Number, required: true },
+  spendLimit: { type: Number, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+const IncomeSource = mongoose.model('IncomeSource', IncomeSourceSchema);
+
+const SurvivalSpendingSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  food: { type: Number, default: 0 },
+  clothes: { type: Number, default: 0 },
+  travel: { type: Number, default: 0 },
+  rent: { type: Number, default: 0 },
+  other: { type: Number, default: 0 },
+  loan: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now }
+});
+const SurvivalSpending = mongoose.model('SurvivalSpending', SurvivalSpendingSchema);
 
 // ── Database Seeding Helper ──
 // ── Database Seeding Helper ──
@@ -441,6 +468,8 @@ app.get('/api/data', authenticateToken, async (req, res) => {
     const savings = await SavingsGoal.find({ userId }).sort({ createdAt: -1 });
     const lessons = await Lesson.find({}).sort({ createdAt: 1 });
     const skills = await Skill.find({}).sort({ createdAt: 1 });
+    const incomeSources = await IncomeSource.find({ userId }).sort({ createdAt: -1 });
+    const survivalSpending = await SurvivalSpending.findOne({ userId });
 
     res.json({
       transactions: formatDocuments(transactions),
@@ -449,7 +478,9 @@ app.get('/api/data', authenticateToken, async (req, res) => {
       audits: formatDocuments(audits),
       savings: formatDocuments(savings),
       lessons: formatDocuments(lessons),
-      skills: formatDocuments(skills)
+      skills: formatDocuments(skills),
+      incomeSources: formatDocuments(incomeSources),
+      survivalSpending: survivalSpending ? { ...survivalSpending.toObject(), id: survivalSpending._id.toString() } : null
     });
   } catch (err) {
     console.error('Data Sync Error:', err);
@@ -903,6 +934,82 @@ app.delete('/api/savings/:id', authenticateToken, async (req, res) => {
     res.json({ success: true, message: 'Savings goal deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete savings goal' });
+  }
+});
+
+// ── Income Sources Endpoints ──
+
+app.get('/api/income-sources', authenticateToken, async (req, res) => {
+  try {
+    const sources = await IncomeSource.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    res.json(formatDocuments(sources));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch income sources' });
+  }
+});
+
+app.post('/api/income-sources', authenticateToken, async (req, res) => {
+  const { type, amount } = req.body;
+  if (!type || amount === undefined) {
+    return res.status(400).json({ error: 'Type and amount are required' });
+  }
+  try {
+    const numericAmount = parseFloat(amount);
+    const spendLimit = numericAmount / 30;
+    const source = await IncomeSource.findOneAndUpdate(
+      { userId: req.user.id, type },
+      { amount: numericAmount, spendLimit },
+      { new: true, upsert: true }
+    );
+    res.status(200).json({ ...source.toObject(), id: source._id.toString() });
+  } catch (err) {
+    console.error('Failed to create/update income source:', err);
+    res.status(500).json({ error: 'Failed to save income source' });
+  }
+});
+
+app.delete('/api/income-sources/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await IncomeSource.deleteOne({ _id: req.params.id, userId: req.user.id });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Income source not found' });
+    }
+    res.json({ success: true, message: 'Income source deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete income source' });
+  }
+});
+
+// ── Survival Spending Endpoints ──
+
+app.get('/api/survival-spending', authenticateToken, async (req, res) => {
+  try {
+    const spending = await SurvivalSpending.findOne({ userId: req.user.id });
+    res.json(spending ? { ...spending.toObject(), id: spending._id.toString() } : null);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch survival spending' });
+  }
+});
+
+app.post('/api/survival-spending', authenticateToken, async (req, res) => {
+  const { food, clothes, travel, rent, other, loan } = req.body;
+  try {
+    const spending = await SurvivalSpending.findOneAndUpdate(
+      { userId: req.user.id },
+      {
+        food: parseFloat(food || 0),
+        clothes: parseFloat(clothes || 0),
+        travel: parseFloat(travel || 0),
+        rent: parseFloat(rent || 0),
+        other: parseFloat(other || 0),
+        loan: parseFloat(loan || 0)
+      },
+      { new: true, upsert: true }
+    );
+    res.status(200).json({ ...spending.toObject(), id: spending._id.toString() });
+  } catch (err) {
+    console.error('Failed to save survival spending:', err);
+    res.status(500).json({ error: 'Failed to save survival spending' });
   }
 });
 
